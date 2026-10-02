@@ -1,0 +1,40 @@
+name: Smoke image (匿名拉取冒烟)
+
+# 验证 ghcr.io/<owner>/harmonyos-ci:<tag> 匿名可拉、工具链可执行。
+# 跑在干净 ubuntu-latest 上, 全程不做 docker login —— 拉不下来即 package 非 public。
+# 消费方(GFSoftware 等)的 container 任务靠公共可见性拉镜像, 这条是它的前哨。
+on:
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: '镜像 tag(如 api26r)'
+        required: true
+        default: 'api26r'
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    name: 匿名拉取 + 工具链自检
+    runs-on: ubuntu-latest
+    steps:
+      - name: Anonymous pull & toolchain check
+        env:
+          TAG: ${{ inputs.image_tag }}
+        run: |
+          set -eu
+          OWNER=$(printf '%s' "${GITHUB_REPOSITORY_OWNER}" | tr 'A-Z' 'a-z')
+          IMG="ghcr.io/${OWNER}/harmonyos-ci:${TAG}"
+          echo "smoke target: ${IMG}"
+          docker pull "${IMG}"
+          docker run --rm "${IMG}" bash -c '
+            set -eu
+            test -x /opt/command-line-tools/bin/hvigorw
+            test -d /opt/command-line-tools/sdk
+            echo "hvigorw: $(hvigorw --version 2>/dev/null | head -1)"
+            echo "ohpm:    $(ohpm -v 2>/dev/null | head -1)"
+            echo "node:    $(node -v)"
+            echo "java:    $(java -version 2>&1 | head -1)"
+          '
+          echo "SMOKE_OK: ${IMG} 匿名可拉且工具链可执行"
