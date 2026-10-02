@@ -208,7 +208,7 @@ RUN set -eux; \
     /opt/cangjie-sdk/cangjie/build-tools/bin/cjc --version; \
     echo "cangjie layer OK"
 
-FROM runtime AS runtime-cj
+FROM toolchain-cj AS runtime-cj
 # helper 的注入契约（tools/hvigor/api26-cangjie-toolchain.js）：DEVECO_CANGJIE_PATH 优先于
 # apps/<App>/local.properties 的 cangjie.sdk.dir —— 4 份入库的 Windows local.properties 零改动。
 # PATH 前插与 helper :8-28 同口径（宿主编译器 + 工具 bin）。
