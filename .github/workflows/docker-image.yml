@@ -31,6 +31,18 @@ on:
         description: '构建所用的 git ref / git ref to build from'
         required: false
         default: 'main'
+      build_target:
+        description: 'Dockerfile target: runtime=纯 CLT 镜像; runtime-cj=加仓颉层(需 cj_sdk_url/cj_integration_url)'
+        required: false
+        default: 'runtime'
+      cj_sdk_url:
+        description: '仓颉 linux-x64-ohos 纯包直链(可附 .sha256); build_target=runtime-cj 时必填'
+        required: false
+        default: ''
+      cj_integration_url:
+        description: '集成层组件包直链(api/+oh-uni-package.json/纯JS插件, 可附 .sha256); runtime-cj 时必填'
+        required: false
+        default: ''
 
 permissions:
   contents: write
@@ -117,11 +129,14 @@ jobs:
         with:
           context: ./docker
           file: docker/harmonyos-ci.Dockerfile
+          target: ${{ inputs.build_target }}
           push: true
           build-args: |
             CLT_ZIP_URL=${{ steps.url.outputs.url }}
             CLT_VERSION=${{ inputs.clt_version }}
             CLT_DESC=${{ steps.desc.outputs.desc }}
+            CJ_SDK_URL=${{ inputs.cj_sdk_url }}
+            CJ_INTEGRATION_URL=${{ inputs.cj_integration_url }}
           tags: ${{ steps.img.outputs.image }}
           cache-from: type=gha
           cache-to: type=gha,mode=max

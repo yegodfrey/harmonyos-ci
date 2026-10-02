@@ -10,6 +10,10 @@ on:
         description: '镜像 tag(如 api26r)'
         required: true
         default: 'api26r'
+      expect_cangjie:
+        description: '是否按仓颉镜像探针(检查 DEVECO_CANGJIE_PATH/插件/cjc)'
+        required: false
+        default: 'false'
 
 permissions:
   contents: read
@@ -22,13 +26,14 @@ jobs:
       - name: Anonymous pull & toolchain check
         env:
           TAG: ${{ inputs.image_tag }}
+          EXPECT_CJ: ${{ inputs.expect_cangjie }}
         run: |
           set -eu
           OWNER=$(printf '%s' "${GITHUB_REPOSITORY_OWNER}" | tr 'A-Z' 'a-z')
           IMG="ghcr.io/${OWNER}/harmonyos-ci:${TAG}"
           echo "smoke target: ${IMG}"
           docker pull "${IMG}"
-          docker run --rm "${IMG}" bash -c '
+          docker run --rm -e EXPECT_CJ="${EXPECT_CJ:-false}" "${IMG}" bash -c '
             set -eu
             test -x /opt/command-line-tools/bin/hvigorw
             test -d /opt/command-line-tools/sdk
@@ -36,5 +41,14 @@ jobs:
             echo "ohpm:    $(ohpm -v 2>/dev/null | head -1)"
             echo "node:    $(node -v)"
             echo "java:    $(java -version 2>&1 | head -1)"
+            if [ "${EXPECT_CJ:-false}" = "true" ]; then
+              echo "--- cangjie probes (runtime-cj) ---"
+              test -n "${DEVECO_CANGJIE_PATH:-}" || { echo "DEVECO_CANGJIE_PATH 未设"; exit 1; }
+              test -f "${DEVECO_CANGJIE_PATH}/build-tools/tools/hvigor/cangjie-build-support/package.json"
+              test -d "${DEVECO_CANGJIE_PATH}/api/lib/linux_ohos_x86_64_cjnative"
+              test -f "${DEVECO_CANGJIE_PATH}/oh-uni-package.json"
+              echo "cjc:     $("${DEVECO_CANGJIE_PATH}/build-tools/bin/cjc" --version 2>&1 | head -1)"
+              echo "CJ_SDK:  ${DEVECO_CANGJIE_PATH}"
+            fi
           '
           echo "SMOKE_OK: ${IMG} 匿名可拉且工具链可执行"

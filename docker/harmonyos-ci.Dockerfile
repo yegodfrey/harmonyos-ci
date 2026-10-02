@@ -135,3 +135,83 @@ LABEL org.opencontainers.image.title="harmonyos-ci (HarmonyOS 构建镜像 / Har
 
 WORKDIR /workspace
 CMD ["/bin/bash"]
+
+# =============================================================================
+# runtime-cj — 仓颉层（T33/M1，2026-10-02）：在 runtime 之上组装 DevEco 集成布局的
+# 仓颉 SDK，供 api26-cangjie-toolchain.js（DEVECO_CANGJIE_PATH 优先注入）消费。
+#
+# 为什么是"组装"而非"直接解包"：官方 linux-x64-ohos 包是**纯工具链布局**
+#   cangjie/{bin,envsetup.sh,lib,modules,runtime,third_party,tools}
+# （cjc/cjc-frontend 为 Linux 宿主 ELF；linux_ohos_{aarch64,x86_64} 目标库 454 条在内），
+# 而 helper 硬检查的 DevEco 集成布局是
+#   <sdk>/{oh-uni-package.json, api/, build-tools/{bin,envsetup.sh,lib,modules,
+#          runtime,third_party,tools,tools/hvigor/cangjie-build-support}}
+# 其中 api/（HarmonyOS 绑定，linux_ohos 目标 ELF，宿主无关）与纯 JS 插件
+# cangjie-build-support 只存在于已安装的集成布局（T33 实证：官方两个可下载归档均不含）。
+# 因此由两个归档组装：
+#   CJ_SDK_URL      = 官方 linux-x64-ohos 纯包（内容 → build-tools/，宿主编译器）
+#   CJ_INTEGRATION_URL = 集成层组件包（api/ + oh-uni-package.json + 纯 JS 插件）
+# 每个 URL 可附一个 .sha256 直链（同 CLT 层口径）；两个 ARG 都允许指向
+# /tmp/local-clt/ 里的本地文件名（离线构建）。
+# 自检 fail-closed：插件 package.json / api 目标库 / cjc --version 任一缺席即构建失败，
+# 绝不出"看起来有仓颉"的镜像。
+# =============================================================================
+
+ARG CJ_SDK_URL=""
+ARG CJ_INTEGRATION_URL=""
+
+FROM toolchain AS toolchain-cj
+ARG CJ_SDK_URL
+ARG CJ_INTEGRATION_URL
+RUN set -eux; \
+    mkdir -p /tmp/cj; cd /tmp/cj; \
+    fetch_and_verify() { \
+      name="$1"; url="$2"; \
+      if [ -f "/tmp/local-clt/$name" ]; then cp "/tmp/local-clt/$name" "$name"; return; fi; \
+      i=0; parts=""; \
+      for u in $url; do \
+        case "$u" in \
+          *.sha256) curl -fL --retry 3 --retry-delay 5 -o "$name.sha256" "$u";; \
+          *) curl -fL --retry 3 --retry-delay 5 -o "$name.part.$i" "$u"; i=$((i+1)); parts="$parts $name.part.$((i-1))";; \
+        esac; \
+      done; \
+      : > "$name"; for p in $parts; do cat "$p" >> "$name"; done; \
+      if [ -f "$name.sha256" ]; then \
+        EXPECT=$(awk '{print $1}' "$name.sha256"); \
+        ACTUAL=$(sha256sum "$name" | awk '{print $1}'); \
+        test "$EXPECT" = "$ACTUAL"; \
+      fi; \
+    }; \
+    test -n "$CJ_SDK_URL"; test -n "$CJ_INTEGRATION_URL"; \
+    fetch_and_verify cj-linux.tar.gz "$CJ_SDK_URL"; \
+    fetch_and_verify cj-integration.tar.gz "$CJ_INTEGRATION_URL"; \
+    mkdir -p /opt/cangjie-sdk/cangjie; \
+    tar -xzf cj-linux.tar.gz -C /opt/cangjie-sdk/cangjie --strip-components=1; \
+    mkdir -p /opt/cangjie-sdk/cangjie/build-tools; \
+    for entry in bin lib modules runtime third_party tools envsetup.sh; do \
+      mv "/opt/cangjie-sdk/cangjie/$entry" /opt/cangjie-sdk/cangjie/build-tools/; \
+    done; \
+    mkdir -p /opt/cangjie-sdk/cangjie/integration; \
+    tar -xzf cj-integration.tar.gz -C /opt/cangjie-sdk/cangjie/integration; \
+    mv /opt/cangjie-sdk/cangjie/integration/api /opt/cangjie-sdk/cangjie/api; \
+    mv /opt/cangjie-sdk/cangjie/integration/oh-uni-package.json /opt/cangjie-sdk/cangjie/oh-uni-package.json; \
+    mkdir -p /opt/cangjie-sdk/cangjie/build-tools/tools/hvigor; \
+    mv /opt/cangjie-sdk/cangjie/integration/build-tools/tools/hvigor/cangjie-build-support \
+       /opt/cangjie-sdk/cangjie/build-tools/tools/hvigor/cangjie-build-support; \
+    rm -rf /opt/cangjie-sdk/cangjie/integration /tmp/cj; \
+    echo "--- cangjie layer self-check (fail-closed) ---"; \
+    test -f /opt/cangjie-sdk/cangjie/build-tools/tools/hvigor/cangjie-build-support/package.json; \
+    test -d /opt/cangjie-sdk/cangjie/api/lib/linux_ohos_x86_64_cjnative; \
+    test -d /opt/cangjie-sdk/cangjie/api/lib/linux_ohos_aarch64_cjnative; \
+    test -f /opt/cangjie-sdk/cangjie/oh-uni-package.json; \
+    test -x /opt/cangjie-sdk/cangjie/build-tools/bin/cjc; \
+    /opt/cangjie-sdk/cangjie/build-tools/bin/cjc --version; \
+    echo "cangjie layer OK"
+
+FROM runtime AS runtime-cj
+# helper 的注入契约（tools/hvigor/api26-cangjie-toolchain.js）：DEVECO_CANGJIE_PATH 优先于
+# apps/<App>/local.properties 的 cangjie.sdk.dir —— 4 份入库的 Windows local.properties 零改动。
+# PATH 前插与 helper :8-28 同口径（宿主编译器 + 工具 bin）。
+ENV DEVECO_CANGJIE_PATH=/opt/cangjie-sdk/cangjie \
+    CANGJIE_HOME=/opt/cangjie-sdk/cangjie/build-tools
+ENV PATH=/opt/cangjie-sdk/cangjie/build-tools/bin:/opt/cangjie-sdk/cangjie/build-tools/tools/bin:$PATH
