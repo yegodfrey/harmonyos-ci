@@ -2,12 +2,12 @@ name: Retire ghcr package (one-shot)
 
 # 一次性删除任务（2026-10-03）：linux 镜像工厂退役后 ghcr.io/yegodfrey/harmonyos-ci
 # 零消费，业主令彻底清除。本 workflow 删除本仓关联的 container package 后即被移除，
-# 不留常驻面。GITHUB_TOKEN 显式带 packages:delete（本地 PAT 无该作用域）。
+# 不留常驻面。GITHUB_TOKEN 显式带 packages:write（权限枚举无 delete；删除能力含于 write。本地 PAT 无 packages 作用域）。
 on:
   workflow_dispatch:
 
 permissions:
-  packages: delete
+  packages: write
   contents: read
 
 jobs:
