@@ -59,3 +59,7 @@ env:
 ## 许可 / License
 
 MIT
+
+## 2026-10-03 追加退役
+
+消费方模板 build.yml 与 sign-and-release.yml 一并退役：两者均依赖 linux 容器镜像（ghcr.io/*/harmonyos-ci）执行，windows 通道后零消费。本仓现仅承载 windows 工具链 release 资产（windows-toolchain-1.0 等）与本说明。
